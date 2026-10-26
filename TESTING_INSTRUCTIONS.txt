@@ -1,48 +1,25 @@
 DIGITAL PERSONAL FINANCE PLATFORM: TESTING INSTRUCTIONS
 
 IMPORTANT
-Run the Google Test suite in an isolated test-data directory. The tests create and remove transactions.dat, savings.dat, and budgets.dat. Do not run them from the folder containing your real records. The Valgrind script also uses a separate build/valgrind-data directory, so it does not read or overwrite your real .dat files.
+Run Google Tests only from the isolated build/gtest-data directory. The test fixture creates and removes transactions.dat, savings.dat, budgets.dat, and activity.log in its current working directory. The Makefile runs tests from the isolated directory so real records are not overwritten. Valgrind also runs from build/valgrind-data.
 
-A. VALGRIND MEMORY CHECK (Linux or WSL)
-Valgrind does not run natively with ordinary MinGW PowerShell builds. Use Ubuntu/WSL or another supported Linux environment.
+INSTALL REQUIRED TOOLS (Ubuntu/WSL)
+    sudo apt update
+    sudo apt install build-essential valgrind cppcheck libgtest-dev
 
-1. Open a Linux/WSL terminal and navigate to the project directory. If the project is on the Windows C: drive, it is usually under /mnt/c/Users/vsb44/Downloads/finance_dynamic_migration/finance_dynamic_migration.
-2. Install the required tools if needed:
-   sudo apt update
-   sudo apt install build-essential valgrind
-3. Make the script executable:
-   chmod +x valgrind.sh
-4. Run it:
-   ./valgrind.sh
-5. Review the Valgrind output. A clean run should report no definitely/indirectly/possibly lost memory and no memory errors. The script returns a non-zero exit status when Valgrind reports errors.
+MAKE TARGETS
+    make             Build the application.
+    make test        Build and run Google Tests in isolated data.
+    make valgrind    Run the startup/load/exit smoke test under Valgrind.
+    make cppcheck    Run general Cppcheck analysis.
+    make misra       Run the Cppcheck MISRA addon if available in the installed package.
+    make check       Run all targets above.
+    make clean       Remove generated executable, test executable, and object files.
 
-This script compiles the application with debug information, starts it in an isolated folder, and enters Exit. It checks startup/loading/exit paths, not every interactive menu operation. Exercise other menu paths separately under Valgrind for broader coverage.
+The Valgrind target exercises startup, file loading, and normal exit by selecting menu option 11. It does not cover every interactive path. The Google Test suite covers individual functions and persistence behavior but is not a formal coverage certification.
 
-B. GOOGLE TEST (Linux/WSL)
-1. Install tools:
-   sudo apt update
-   sudo apt install build-essential cmake libgtest-dev
-2. From the project root, compile the C files as C, then link them with the C++ Google Test file:
-   mkdir -p build
-   gcc -std=c11 -Wall -Wextra -Iinclude -c src/transaction.c -o build/transaction.o
-   gcc -std=c11 -Wall -Wextra -Iinclude -c src/report.c -o build/report.o
-   gcc -std=c11 -Wall -Wextra -Iinclude -c src/budget.c -o build/budget.o
-   g++ -std=c++17 -Wall -Wextra -Iinclude test/test_finance.cpp build/transaction.o build/report.o build/budget.o -lgtest -lgtest_main -pthread -lm -o build/finance_tests
-3. Create and enter an isolated test folder:
-   mkdir -p build/gtest-data
-   cd build/gtest-data
-4. Run the test executable:
-   ../finance_tests
+MISRA C
+The MISRA target uses the Cppcheck MISRA addon. The available rule coverage depends on the Cppcheck version and addon installation. This check does not establish full MISRA C compliance. Review and document findings and deviations. A plain text file listing rules is documentation only; it does not perform automated verification.
 
-The test fixture deletes the three .dat files before and after each test. Run tests only from build/gtest-data, never from the directory holding your real data files.
-
-C. GOOGLE TEST ON WINDOWS
-Google Test is not included with the standard MinGW compiler. You must install/build a Google Test package compatible with your MinGW toolchain and link its headers and libraries. Then use the same source list as section B, adjusting include/library paths and output name for Windows. If Google Test is not installed, run the GTest tests in WSL using section B.
-
-D. WHAT THESE TESTS COVER
-- Transaction save/load and dynamic allocation during load.
-- Loading when transactions.dat is absent.
-- Savings save/load and rejection of negative/infinite savings.
-- Budget save/load.
-
-The current application exposes add, update, delete, search, and filter as interactive functions that read from stdin. These are not covered by this basic unit-test file. To test them reliably, refactor their core logic into non-interactive functions or add controlled input tests. This test suite is a starter suite, not proof of 80-90% function/branch coverage.
+TIMESTAMP TESTING
+New transactions receive a timestamp. Updating a transaction refreshes its timestamp. Add/update/delete operations append an event to activity.log. Legacy transaction records have no historical timestamp, so the loader assigns the label Unknown rather than inventing a date.

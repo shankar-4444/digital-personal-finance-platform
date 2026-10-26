@@ -23,7 +23,7 @@ void loadBudgets(struct budget b[], int *m)
         return;
     }
 
-    if (c > 0 && fread(x, sizeof(struct budget), c, f) != (size_t)c)
+    if (c > 0 && fread(x, sizeof x[0], c, f) != (size_t)c)
     {
         printf("Unable to load budgets\n");
         fclose(f);
@@ -79,7 +79,7 @@ int saveBudgets(struct budget b[], int m)
     }
 
     if (fwrite(&m, sizeof(int), 1, f) != 1 ||
-        (m > 0 && fwrite(b, sizeof(struct budget), m, f) != (size_t)m))
+        (m > 0 && fwrite(b, sizeof b[0], m, f) != (size_t)m))
     {
         printf("Error saving budgets\n");
         fclose(f);

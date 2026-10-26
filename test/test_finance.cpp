@@ -15,12 +15,14 @@ protected:
         std::remove("transactions.dat");
         std::remove("savings.dat");
         std::remove("budgets.dat");
+        std::remove("activity.log");
     }
 
     void TearDown() override {
         std::remove("transactions.dat");
         std::remove("savings.dat");
         std::remove("budgets.dat");
+        std::remove("activity.log");
     }
 };
 
@@ -43,8 +45,37 @@ TEST_F(FinanceTest, SaveAndLoadTransaction) {
     EXPECT_EQ(out[0].type, 1);
     EXPECT_DOUBLE_EQ(out[0].amount, 1000.0);
     EXPECT_STREQ(out[0].category, "Salary");
+    EXPECT_STRNE(out[0].timestamp, "");
     EXPECT_GE(cap, static_cast<size_t>(1));
     std::free(out);
+}
+
+TEST_F(FinanceTest, LoadLegacyTransactionWithoutTimestamp) {
+    struct old_transaction {
+        int id;
+        int type;
+        double amount;
+        char category[30];
+    };
+
+    struct old_transaction in = {1, 1, 1000.0, "Salary"};
+    FILE *f = fopen("transactions.dat", "wb");
+    ASSERT_NE(f, nullptr);
+    int n = 1;
+    ASSERT_EQ(fwrite(&n, sizeof(int), 1, f), 1u);
+    ASSERT_EQ(fwrite(&in, sizeof(in), 1, f), 1u);
+    fclose(f);
+
+    struct transaction *out = nullptr;
+    size_t cap = 0;
+    n = 0;
+    load(&out, &n, &cap);
+
+    ASSERT_EQ(n, 1);
+    ASSERT_NE(out, nullptr);
+    EXPECT_STREQ(out[0].category, "Salary");
+    EXPECT_STREQ(out[0].timestamp, "Unknown");
+    free(out);
 }
 
 TEST_F(FinanceTest, LoadMissingTransactionsStartsEmpty) {
@@ -117,7 +148,14 @@ TEST_F(FinanceTest, AddValidIncomeTransaction) {
     EXPECT_EQ(t[0].type, 1);
     EXPECT_DOUBLE_EQ(t[0].amount, 1000.0);
     EXPECT_STREQ(t[0].category, "Salary");
+    EXPECT_STRNE(t[0].timestamp, "");
     EXPECT_NE(out.find("Transaction added successfully"), std::string::npos);
+    FILE *log = fopen("activity.log", "r");
+    ASSERT_NE(log, nullptr);
+    char line[128];
+    ASSERT_NE(fgets(line, sizeof(line), log), nullptr);
+    EXPECT_NE(std::string(line).find("Added"), std::string::npos);
+    fclose(log);
 
     free(t);
 }

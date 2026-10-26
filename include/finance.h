@@ -2,6 +2,7 @@
 #define FINANCE_H
 
 #include <stddef.h>
+#include <time.h>
 
 #define MAX_TRANSACTIONS 100000
 
@@ -11,6 +12,7 @@ struct transaction
     int type;
     double amount;
     char category[30];
+    char timestamp[20];
 };
 
 struct budget
@@ -35,6 +37,7 @@ void budgetMenu(struct transaction t[], int n);
 void loadBudgets(struct budget b[], int *m);
 int saveBudgets(struct budget b[], int m);
 void categoryReport(struct transaction t[], int n);
+void logActivity(const char *action, int id);
 int readInt(int *x);
 int readDouble(double *x);
 

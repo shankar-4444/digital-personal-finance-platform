@@ -6,7 +6,39 @@
 #include <limits.h>
 #include <stdint.h>
 #include <math.h>
+#include <time.h>
 #include "finance.h"
+
+struct old_transaction
+{
+    int id;
+    int type;
+    double amount;
+    char category[30];
+};
+
+static void getTimestamp(char s[20])
+{
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+
+    if (tm_info == NULL || strftime(s, 20, "%Y-%m-%d %H:%M:%S", tm_info) == 0)
+        snprintf(s, 20, "%s", "Unknown");
+}
+
+void logActivity(const char *action, int id)
+{
+    FILE *f = fopen("activity.log", "a");
+    char ts[20];
+
+    if (f == NULL)
+        return;
+
+    getTimestamp(ts);
+    fprintf(f, "%s | %s | Transaction ID: %d\n", ts, action, id);
+    fclose(f);
+}
+
 
 static int reserveTransactions(struct transaction **t, size_t *cap, size_t need)
 {
@@ -34,10 +66,10 @@ static int reserveTransactions(struct transaction **t, size_t *cap, size_t need)
     if (nc > MAX_TRANSACTIONS)
         nc = MAX_TRANSACTIONS;
 
-    if (nc < need || nc > SIZE_MAX / sizeof(struct transaction))
+    if (nc < need || nc > SIZE_MAX / sizeof **t)
         return 0;
 
-    p = realloc(*t, nc * sizeof(struct transaction));
+    p = realloc(*t, nc * sizeof **t);
     if (p == NULL)
         return 0;
 
@@ -174,6 +206,7 @@ void add(struct transaction **t, int *n, size_t *cap)
         return;
     }
     x.id = m + 1;
+    getTimestamp(x.timestamp);
 
     printf("1. Income\n2. Expense\nChoice: ");
     if (readInt(&x.type) != 1 || (x.type != 1 && x.type != 2))
@@ -199,7 +232,7 @@ void add(struct transaction **t, int *n, size_t *cap)
         return;
     }
 
-    memcpy(&(*t)[*n], &x, sizeof(struct transaction));
+    memcpy(&(*t)[*n], &x, sizeof x);
     (*n)++;
 
     if (!save(*t, *n))
@@ -208,6 +241,7 @@ void add(struct transaction **t, int *n, size_t *cap)
         return;
     }
 
+    logActivity("Added", x.id);
     printf("Transaction added successfully. ID: %d\n", x.id);
 }
 
@@ -221,11 +255,11 @@ void view(struct transaction t[], int n)
         return;
     }
 
-    printf("\nID\tType\tAmount\tCategory\n");
+    printf("\nID\tType\tAmount\tCategory\tTimestamp\n");
     for (i = 0; i < n; i++)
-        printf("%d\t%s\t%.2f\t%s\n", t[i].id,
+        printf("%d\t%s\t%.2f\t%s\t%s\n", t[i].id,
                t[i].type == 1 ? "Income" : "Expense",
-               t[i].amount, t[i].category);
+               t[i].amount, t[i].category, t[i].timestamp);
 }
 
 void update(struct transaction t[], int n)
@@ -269,6 +303,7 @@ void update(struct transaction t[], int n)
     struct transaction old = t[i];
     t[i].type = type;
     t[i].amount = amount;
+    getTimestamp(t[i].timestamp);
     snprintf(t[i].category, sizeof(t[i].category), "%s", c);
 
     if (!save(t, n))
@@ -277,6 +312,7 @@ void update(struct transaction t[], int n)
         return;
     }
 
+    logActivity("Updated", id);
     printf("Transaction updated successfully\n");
 }
 
@@ -299,13 +335,13 @@ void del(struct transaction t[], int *n)
         return;
     }
 
-    if ((size_t)*n > SIZE_MAX / sizeof(struct transaction))
+    if ((size_t)*n > SIZE_MAX / sizeof t[0])
     {
         printf("Unable to back up transactions\n");
         return;
     }
 
-    old = malloc((size_t)*n * sizeof(struct transaction));
+    old = malloc((size_t)*n * sizeof t[0]);
     if (old == NULL)
     {
         printf("Unable to back up transactions\n");
@@ -330,6 +366,7 @@ void del(struct transaction t[], int *n)
     }
 
     free(old);
+    logActivity("Deleted", id);
     printf("Transaction deleted successfully\n");
 }
 
@@ -348,9 +385,9 @@ void search(struct transaction t[], int n)
         if (t[i].id == id)
         {
             printf("Transaction Found\n");
-            printf("ID: %d\nType: %s\nAmount: %.2f\nCategory: %s\n",
+            printf("ID: %d\nType: %s\nAmount: %.2f\nCategory: %s\nTimestamp: %s\n",
                    t[i].id, t[i].type == 1 ? "Income" : "Expense",
-                   t[i].amount, t[i].category);
+                   t[i].amount, t[i].category, t[i].timestamp);
             return;
         }
 
@@ -377,10 +414,10 @@ void filter(struct transaction t[], int n)
         if (cmp(t[i].category, c))
         {
             if (!found)
-                printf("\nID\tType\tAmount\tCategory\n");
-            printf("%d\t%s\t%.2f\t%s\n", t[i].id,
+                printf("\nID\tType\tAmount\tCategory\tTimestamp\n");
+            printf("%d\t%s\t%.2f\t%s\t%s\n", t[i].id,
                    t[i].type == 1 ? "Income" : "Expense",
-                   t[i].amount, t[i].category);
+                   t[i].amount, t[i].category, t[i].timestamp);
             found = 1;
         }
 
@@ -391,6 +428,8 @@ void filter(struct transaction t[], int n)
 int save(struct transaction t[], int n)
 {
     FILE *f;
+    struct transaction *x = NULL;
+    int i, ok = 1;
 
     if (n < 0 || n > MAX_TRANSACTIONS || (n > 0 && t == NULL))
     {
@@ -398,36 +437,49 @@ int save(struct transaction t[], int n)
         return 0;
     }
 
+    if (n > 0)
+    {
+        if ((size_t)n > SIZE_MAX / sizeof t[0])
+            return 0;
+        x = malloc((size_t)n * sizeof t[0]);
+        if (x == NULL)
+            return 0;
+        memcpy(x, t, (size_t)n * sizeof t[0]);
+        for (i = 0; i < n; i++)
+            if (x[i].timestamp[0] == '\0')
+                getTimestamp(x[i].timestamp);
+    }
+
     f = fopen("transactions.dat", "wb");
     if (f == NULL)
     {
+        free(x);
         printf("Unable to save transactions\n");
         return 0;
     }
 
     if (fwrite(&n, sizeof(int), 1, f) != 1 ||
-        (n > 0 && fwrite(t, sizeof(struct transaction), (size_t)n, f) != (size_t)n))
+        (n > 0 && fwrite(x, sizeof x[0], (size_t)n, f) != (size_t)n))
     {
         printf("Error saving transactions\n");
-        fclose(f);
-        return 0;
+        ok = 0;
     }
 
     if (fclose(f) != 0)
-    {
-        printf("Error closing transaction file\n");
-        return 0;
-    }
+        ok = 0;
 
-    return 1;
+    free(x);
+    return ok;
 }
 
 void load(struct transaction **t, int *n, size_t *cap)
 {
     FILE *f;
     struct transaction *x = NULL;
-    int c, i, j, k;
-    int ok = 1;
+    struct old_transaction *old = NULL;
+    int c, i, j, k, ok = 1, legacy = 0;
+    long file_size;
+    size_t expected_old, expected_new;
 
     if (t == NULL || n == NULL || cap == NULL)
         return;
@@ -444,29 +496,67 @@ void load(struct transaction **t, int *n, size_t *cap)
         return;
     }
 
+    if (fseek(f, 0, SEEK_END) != 0 || (file_size = ftell(f)) < 0 ||
+        fseek(f, (long)sizeof(int), SEEK_SET) != 0)
+    {
+        fclose(f);
+        return;
+    }
+
+    expected_old = sizeof(int) + (size_t)c * sizeof(struct old_transaction);
+    expected_new = sizeof(int) + (size_t)c * sizeof x[0];
+    if ((unsigned long)file_size == expected_old && expected_old != expected_new)
+        legacy = 1;
+    else if ((unsigned long)file_size > expected_new)
+    {
+        printf("Unexpected data in transaction file\n");
+        fclose(f);
+        return;
+    }
+    else if ((unsigned long)file_size != expected_new)
+    {
+        printf("Unable to load transactions\n");
+        fclose(f);
+        return;
+    }
+
     if (c > 0)
     {
-        if ((size_t)c > SIZE_MAX / sizeof(struct transaction))
+        if (legacy)
         {
-            printf("Transaction file is too large\n");
-            fclose(f);
-            return;
+            old = malloc((size_t)c * sizeof(struct old_transaction));
+            if (old == NULL || fread(old, sizeof(struct old_transaction), (size_t)c, f) != (size_t)c)
+            {
+                free(old);
+                fclose(f);
+                return;
+            }
+            x = calloc((size_t)c, sizeof x[0]);
+            if (x == NULL)
+            {
+                free(old);
+                fclose(f);
+                return;
+            }
+            for (i = 0; i < c; i++)
+            {
+                x[i].id = old[i].id;
+                x[i].type = old[i].type;
+                x[i].amount = old[i].amount;
+                memcpy(x[i].category, old[i].category, sizeof(x[i].category));
+                snprintf(x[i].timestamp, sizeof(x[i].timestamp), "%s", "Unknown");
+            }
+            free(old);
         }
-
-        x = malloc((size_t)c * sizeof(struct transaction));
-        if (x == NULL)
+        else
         {
-            printf("Unable to allocate memory while loading transactions\n");
-            fclose(f);
-            return;
-        }
-
-        if (fread(x, sizeof(struct transaction), (size_t)c, f) != (size_t)c)
-        {
-            printf("Unable to load transactions\n");
-            free(x);
-            fclose(f);
-            return;
+            x = malloc((size_t)c * sizeof x[0]);
+            if (x == NULL || fread(x, sizeof x[0], (size_t)c, f) != (size_t)c)
+            {
+                free(x);
+                fclose(f);
+                return;
+            }
         }
     }
 
@@ -474,7 +564,8 @@ void load(struct transaction **t, int *n, size_t *cap)
     {
         if (x[i].id <= 0 || (x[i].type != 1 && x[i].type != 2) ||
             !isfinite(x[i].amount) || x[i].amount <= 0 ||
-            memchr(x[i].category, '\0', sizeof(x[i].category)) == NULL)
+            memchr(x[i].category, '\0', sizeof(x[i].category)) == NULL ||
+            memchr(x[i].timestamp, '\0', sizeof(x[i].timestamp)) == NULL)
         {
             printf("Invalid transaction data\n");
             ok = 0;
@@ -489,20 +580,13 @@ void load(struct transaction **t, int *n, size_t *cap)
                 break;
             }
 
-        for (k = 0; k < (int)sizeof(x[i].category) &&
-                    x[i].category[k] != '\0'; k++)
+        for (k = 0; k < (int)sizeof(x[i].category) && x[i].category[k] != '\0'; k++)
             if (!isprint((unsigned char)x[i].category[k]))
             {
                 printf("Invalid transaction category data\n");
                 ok = 0;
                 break;
             }
-    }
-
-    if (ok && fgetc(f) != EOF)
-    {
-        printf("Unexpected data in transaction file\n");
-        ok = 0;
     }
 
     if (fclose(f) != 0)
@@ -522,7 +606,7 @@ void load(struct transaction **t, int *n, size_t *cap)
     }
 
     if (c > 0)
-        memcpy(*t, x, (size_t)c * sizeof(struct transaction));
+        memcpy(*t, x, (size_t)c * sizeof x[0]);
 
     *n = c;
     free(x);
